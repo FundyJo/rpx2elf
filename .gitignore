@@ -1,0 +1,10 @@
+# Compiled object files
+*.o
+
+# Compiled binaries
+rpx2elf
+rpx2elf.exe
+
+# Sample/test input and output files
+*.rpx
+*.elf
