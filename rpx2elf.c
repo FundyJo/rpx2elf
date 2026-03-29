@@ -4,22 +4,109 @@
 
 #include "rpx2elf.h"
 
-typedef struct {
-	uint32_t p_type;
-	uint32_t p_offset;
-	uint32_t p_vaddr;
-	uint32_t p_paddr;
-	uint32_t p_filesz;
-	uint32_t p_memsz;
-	uint32_t p_flags;
-	uint32_t p_align;
-} Elf32_Phdr;
+// ============================================================================
+// Utility Functions (formerly in utils.c)
+// ============================================================================
 
-#define PT_LOAD 0x00000001
+u8 be8(u8 *p)
+{
+	return *p;
+}
 
-#define PF_X 0x00000001
-#define PF_W 0x00000002
-#define PF_R 0x00000004
+u16 be16(u8 *p)
+{
+	u16 a;
+	a  = p[0] << 8;
+	a |= p[1];
+	return a;
+}
+
+u32 be32(u8 *p)
+{
+	u32 a;
+	a  = p[0] << 24;
+	a |= p[1] << 16;
+	a |= p[2] <<  8;
+	a |= p[3] <<  0;
+	return a;
+}
+
+u64 be64(u8 *p)
+{
+	u32 a, b;
+	a = be32(p);
+	b = be32(p + 4);
+	return ((u64)a<<32) | b;
+}
+
+u16 se16(u16 i)
+{
+	return (((i & 0xFF00) >> 8) | ((i & 0xFF) << 8));
+}
+
+u32 se32(u32 i)
+{
+	return ((i & 0xFF000000) >> 24) | ((i & 0xFF0000) >>  8) | ((i & 0xFF00) <<  8) | ((i & 0xFF) << 24);
+}
+
+u64 se64(u64 i)
+{
+	return ((i & 0x00000000000000FF) << 56) | ((i & 0x000000000000FF00) << 40) |
+		((i & 0x0000000000FF0000) << 24) | ((i & 0x00000000FF000000) <<  8) |
+		((i & 0x000000FF00000000) >>  8) | ((i & 0x0000FF0000000000) >> 24) |
+		((i & 0x00FF000000000000) >> 40) | ((i & 0xFF00000000000000) >> 56);
+}
+
+int inflate_data(u8 *in, u32 in_len, u8 *out, u32 out_len)
+{
+	int ret = 0;
+
+	u8 *tmp = malloc(out_len * sizeof(u8));
+	if (tmp == NULL)
+	{
+		printf("ERROR: Could not allocate memory for decompression!\n");
+		return -1;
+	}
+
+	z_stream s;
+	memset(&s, 0, sizeof(s));
+
+	s.zalloc = Z_NULL;
+	s.zfree = Z_NULL;
+	s.opaque = Z_NULL;
+
+	ret = inflateInit(&s);
+	if (ret != Z_OK)
+	{
+		printf("ERROR: Inflate initialization failed: %d\n", ret);
+		free(tmp);
+		return ret;
+	}
+
+	s.avail_in = in_len;
+	s.next_in = in;
+	s.avail_out = out_len;
+	s.next_out = tmp;
+
+	ret = inflate(&s, Z_FINISH);
+	if (ret != Z_OK && ret != Z_STREAM_END)
+	{
+		printf("ERROR: Inflate failed: %d\n", ret);
+		inflateEnd(&s);
+		free(tmp);
+		return ret;
+	}
+
+	inflateEnd(&s);
+	memcpy(out, tmp, out_len);
+	free(tmp);
+
+	return ret;
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 static uint32_t align_up(uint32_t value, uint32_t align)
 {
@@ -47,27 +134,29 @@ static uint32_t section_to_phdr_flags(uint32_t sh_flags)
 	return p_flags;
 }
 
-// Endian swap file write functions.
-void fwrite16(u16 i, FILE *f)
+static inline void fwrite16(u16 i, FILE *f)
 {
 	u16 p = se16(i);
 	fwrite(&p, sizeof(u16), 1, f);
 }
 
-void fwrite32(u32 i, FILE *f)
+static inline void fwrite32(u32 i, FILE *f)
 {
 	u32 p = se32(i);
 	fwrite(&p, sizeof(u32), 1, f);
 }
 
-void fwrite64(u64 i, FILE *f)
+static inline void fwrite64(u64 i, FILE *f)
 {
 	u64 p = se64(i);
 	fwrite(&p, sizeof(u64), 1, f);
 }
 
-// Print functions.
-void print_elf32_ehdr(Elf32_Ehdr *ehdr)
+// ============================================================================
+// Print Functions
+// ============================================================================
+
+static void print_elf32_ehdr(Elf32_Ehdr *ehdr)
 {
 	printf("ELF header:\n");
 	printf("e_ident     %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
@@ -91,7 +180,7 @@ void print_elf32_ehdr(Elf32_Ehdr *ehdr)
 	printf("\n");
 }
 
-void print_elf32_shdr(Elf32_Shdr *shdr, int i)
+static void print_elf32_shdr(Elf32_Shdr *shdr, int i)
 {
 	printf("ELF section header #%d:\n", i);
 	printf("sh_name:       0x%08x\n", shdr->sh_name);
@@ -107,7 +196,7 @@ void print_elf32_shdr(Elf32_Shdr *shdr, int i)
 	printf("\n");
 }
 
-void print_rpl_fileinfo(Rpl_Fileinfo *fileinfo)
+static void print_rpl_fileinfo(Rpl_Fileinfo *fileinfo)
 {
 	printf("RPL file info:\n");
 	printf("magic_version:                  0x%08x\n", fileinfo->magic_version);
@@ -129,7 +218,7 @@ void print_rpl_fileinfo(Rpl_Fileinfo *fileinfo)
 	printf("\n");
 }
 
-void print_rpl_crcs(uint32_t *crcs, uint32_t crcs_size)
+static void print_rpl_crcs(uint32_t *crcs, uint32_t crcs_size)
 {
 	printf("RPL data CRCs:\n");
 	int i;
@@ -142,22 +231,48 @@ void print_rpl_crcs(uint32_t *crcs, uint32_t crcs_size)
 	printf("\n");
 }
 
-// RPL functions.
+// ============================================================================
+// RPL Conversion Function
+// ============================================================================
+
 int convert_rpl(FILE *in, FILE *out)
 {
 	// Get the input file's size.
 	fseek(in, 0, SEEK_END);
 	int file_size = ftell(in);
 	fseek(in, 0, SEEK_SET);
-	
+
+	if (file_size <= 0)
+	{
+		printf("ERROR: Invalid file size!\n");
+		return -1;
+	}
+
 	// Read the input RPL file.
-	uint8_t *rpl = (uint8_t *) malloc (file_size);
+	uint8_t *rpl = (uint8_t *)malloc(file_size);
+	if (rpl == NULL)
+	{
+		printf("ERROR: Could not allocate memory for file!\n");
+		return -1;
+	}
 	memset(rpl, 0, file_size);
-	fread(rpl, file_size, 1, in);
+
+	if (fread(rpl, file_size, 1, in) != 1)
+	{
+		printf("ERROR: Could not read input file!\n");
+		free(rpl);
+		return -1;
+	}
 	
 	// Prepare to read the RPL's ELF EHDR.
 	uint32_t ehdr_size = sizeof(Elf32_Ehdr);
-	Elf32_Ehdr *ehdr = (Elf32_Ehdr *) malloc (ehdr_size);
+	Elf32_Ehdr *ehdr = (Elf32_Ehdr *)malloc(ehdr_size);
+	if (ehdr == NULL)
+	{
+		printf("ERROR: Could not allocate memory for ELF header!\n");
+		free(rpl);
+		return -1;
+	}
 	memset(ehdr, 0, ehdr_size);
 
 	// Read ELF EHDR.
@@ -407,12 +522,16 @@ int convert_rpl(FILE *in, FILE *out)
 	return 0;
 }
 
+// ============================================================================
+// Main Function
+// ============================================================================
+
 int main(int argc, char *argv[])
 {
 	if (argc != 3)
 	{
 		printf("***********************************************************\n\n");
-		printf("rpx2elf v0.0.1 - Convert Wii U RPL/RPX files to ELF.\n");
+		printf("rpx2elf v1.0.0 - Convert Wii U RPL/RPX files to ELF.\n");
 		printf("               - Written by Hykem (C).\n\n");
 		printf("***********************************************************\n\n");
 		printf("Usage: rpx2elf [INPUT.RPL/RPX] [OUTPUT.ELF]\n");
@@ -422,14 +541,35 @@ int main(int argc, char *argv[])
 
 	// Open files for read/write.
 	FILE *in = fopen(argv[1], "rb");
+	if (in == NULL)
+	{
+		printf("ERROR: Could not open input file '%s'!\n", argv[1]);
+		return 1;
+	}
+
 	FILE *out = fopen(argv[2], "wb");
-	
+	if (out == NULL)
+	{
+		printf("ERROR: Could not open output file '%s'!\n", argv[2]);
+		fclose(in);
+		return 1;
+	}
+
 	// Convert the file.
-	convert_rpl(in, out);
-	
+	int result = convert_rpl(in, out);
+
 	// Clean up.
 	fclose(out);
 	fclose(in);
-	
-	return 0;
+
+	if (result == 0)
+	{
+		printf("\nConversion completed successfully!\n");
+	}
+	else
+	{
+		printf("\nConversion failed with error code: %d\n", result);
+	}
+
+	return result;
 }

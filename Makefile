@@ -1,37 +1,24 @@
 CC     = gcc
 CC_WIN = x86_64-w64-mingw32-gcc
-CFLAGS = -Wall
+CFLAGS = -Wall -O3 -flto
+LDFLAGS = -lz
 
 ifeq ($(DEBUG), 1)
-CFLAGS+=-g -O0
-else
-CFLAGS+=-O2
+CFLAGS = -Wall -g -O0
 endif
 
-OBJS     = rpx2elf.o utils.o
-OBJS_WIN = rpx2elf_win.o utils_win.o
+# Single source file compilation
+SRC = rpx2elf.c
 
 all: rpx2elf
 
-rpx2elf: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) -lz
+rpx2elf: $(SRC) rpx2elf.h
+	$(CC) $(CFLAGS) -o $@ $(SRC) $(LDFLAGS)
 
-rpx2elf.o: rpx2elf.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-utils.o: utils.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-win: $(OBJS_WIN)
-	$(CC_WIN) $(CFLAGS) -o rpx2elf.exe $(OBJS_WIN) $(LDFLAGS) -lz
-
-rpx2elf_win.o: rpx2elf.c
-	$(CC_WIN) $(CFLAGS) -c -o $@ $<
-
-utils_win.o: utils.c
-	$(CC_WIN) $(CFLAGS) -c -o $@ $<
+win: $(SRC) rpx2elf.h
+	$(CC_WIN) $(CFLAGS) -o rpx2elf.exe $(SRC) $(LDFLAGS) -static
 
 clean:
-	rm -f $(OBJS) $(OBJS_WIN) rpx2elf rpx2elf.exe
+	rm -f rpx2elf rpx2elf.exe *.o
 
 .PHONY: all win clean
