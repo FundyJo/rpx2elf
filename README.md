@@ -1,12 +1,53 @@
 # rpx2elf
-Convert Wii U RPL/RPX files to standard ELF format. This tool is still unfinished and for now all it can do is decompress the RPL/RPX zlib compressed sections, as well as display important information regarding the ELF headers and data.
 
-# Credits
-comex (documentation and research of the RPL/RPX format)
+Convert Wii U RPL/RPX files to standard ELF format. This tool decompresses zlib-compressed sections and converts RPL/RPX files to standard ELF executables.
 
-deroad (additional research of the RPL/RPX format)
+## Features
 
-Mark Adler (zlib header files)
+- Converts Wii U RPL/RPX format to standard ELF
+- Decompresses zlib-compressed sections
+- Displays detailed ELF header and section information
+- Optimized single-source file architecture for easy compilation
+- Cross-platform support (Linux, macOS, Windows)
+
+## Building
+
+### Linux/macOS
+```bash
+make
+```
+
+### Windows (cross-compile from Linux)
+```bash
+make win
+```
+
+### Debug build
+```bash
+make DEBUG=1
+```
+
+## Usage
+
+```bash
+rpx2elf [INPUT.RPL/RPX] [OUTPUT.ELF]
+```
+
+## Code Structure
+
+The project has been optimized with a clean, modular structure:
+- `rpx2elf.h` - All type definitions, structures, and function declarations
+- `rpx2elf.c` - Complete implementation in a single source file
+- `Makefile` - Optimized build configuration with LTO support
+
+This architecture makes it easy to compile into a single, optimized executable for any platform.
+
+## Credits
+
+- Hykem (original development)
+- comex (documentation and research of the RPL/RPX format)
+- deroad (additional research of the RPL/RPX format)
+- Mark Adler (zlib header files)
 
 ## Cross-platform binaries via GitHub Actions
 
@@ -29,4 +70,8 @@ git push origin v1.0.0
 ```
 
 The workflow will publish release assets and a `SHA256SUMS` file.
-# rpx2elf
+
+## License
+
+Licensed under the terms of the GNU GPL, version 3
+http://www.gnu.org/licenses/gpl-3.0.txt
